@@ -1,0 +1,12 @@
+file(
+	GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
+	${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
+)
+
+set(TEST_PROJECT_TITLE Test_Stereo_Calibration)
+
+add_executable(
+	${TEST_PROJECT_TITLE} 
+	${SRC_FILES}
+)
