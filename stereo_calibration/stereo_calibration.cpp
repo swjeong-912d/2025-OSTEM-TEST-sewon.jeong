@@ -8,6 +8,7 @@ using std::uint64_t;
 
 static uint64_t Solution(uint64_t A);
 std::vector<cv::KeyPoint> computeCircleCenterCoordinates(const cv::Mat& image);
+std::vector<cv::KeyPoint> findMostIsolatedPoints(const std::vector<cv::KeyPoint>& keyPoints, size_t K = 5);
 
 int main()
 {
@@ -38,59 +39,14 @@ uint64_t Solution(uint64_t A)
 		}
 
 		std::vector<cv::KeyPoint> keypoints = computeCircleCenterCoordinates(image); // Detect keypoints
-
-		if (keypoints.empty()) 
-		{
-			std::cerr << "No keypoints detected in image " << fileName << std::endl;
-			continue; // Skip to the next file if no keypoints are found
-		}
-
-		// First, try searching with a loop. If it's slow, try a tree.
-		std::vector<double> closestNeighborDists;
-		std::vector<double> neighborDists;
-		closestNeighborDists.reserve(keypoints.size());
-		neighborDists.reserve(keypoints.size() - 1);
-		for (const auto& keypoint : keypoints)
-		{
-			neighborDists.clear();
-			for (const auto& neighbor : keypoints)
-			{
-				if (neighbor.pt == keypoint.pt) // You can search by address, but for readability...
-				{
-					continue;
-				}
-
-				neighborDists.push_back(cv::norm(neighbor.pt - keypoint.pt));
-			}
-
-			closestNeighborDists.push_back(*std::min_element(neighborDists.begin(), neighborDists.end()));
-		}
-
-
-		std::vector<int> idx(closestNeighborDists.size());
-		std::iota(idx.begin(), idx.end(), 0);
-
-		// Sort corresponding indexes in descending order of distance value
-		std::sort(idx.begin(), idx.end(), [&closestNeighborDists](int a, int b) {
-			return closestNeighborDists[a] > closestNeighborDists[b];
-			});
-
-		int topN = std::min(5, (int)idx.size());
-		std::cout << "Top " << topN << " keypoints:\n";
-		for (int i = 0; i < topN; i++) 
-		{
-			int id = idx[i];
-			std::cout << "score=" << closestNeighborDists[id]
-				<< "  point=(" << keypoints[id].pt.x << ", " << keypoints[id].pt.y << ")" << std::endl;
-		}
+		auto selectedKeypoints = findMostIsolatedPoints(keypoints, 5); // Find the most isolated keypoints
 
 		// Display the image with the furthest keypoints marked
 
 		cv::Mat outputImage = image.clone();
-		for (int i = 0; i < topN; i++) 
+		for (const auto& keypoint : selectedKeypoints) 
 		{
-			int id = idx[i];
-			cv::circle(outputImage, keypoints[id].pt, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
+			cv::circle(outputImage, keypoint.pt, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
 		}
 		cv::imshow("Furthest Keypoints", outputImage); // Show the image with keypoints
 		cv::waitKey(0); // Wait for a key press to close the window
@@ -129,4 +85,50 @@ std::vector<cv::KeyPoint> computeCircleCenterCoordinates(const cv::Mat& image)
 	detector->detect(image, keypoints);
 
 	return keypoints;
+}
+
+std::vector<cv::KeyPoint> findMostIsolatedPoints(const std::vector<cv::KeyPoint>& keypoints, size_t K) 
+{
+	// First, try searching with a loop. If it's slow, try a tree.
+	std::vector<double> closestNeighborDists;
+	std::vector<double> neighborDists;
+	closestNeighborDists.reserve(keypoints.size());
+	neighborDists.reserve(keypoints.size() - 1);
+	for (const auto& keypoint : keypoints)
+	{
+		neighborDists.clear();
+		for (const auto& neighbor : keypoints)
+		{
+			if (neighbor.pt == keypoint.pt) // You can search by address, but for readability...
+			{
+				continue;
+			}
+
+			neighborDists.push_back(cv::norm(neighbor.pt - keypoint.pt));
+		}
+
+		closestNeighborDists.push_back(*std::min_element(neighborDists.begin(), neighborDists.end()));
+	}
+
+
+	std::vector<int> idx(closestNeighborDists.size());
+	std::iota(idx.begin(), idx.end(), 0);
+
+	// Sort corresponding indexes in descending order of distance value
+	std::sort(idx.begin(), idx.end(), [&closestNeighborDists](int a, int b) {
+			return closestNeighborDists[a] > closestNeighborDists[b];
+		});
+
+	std::vector<cv::KeyPoint> outputKeypoints;
+	outputKeypoints.reserve(K);
+
+
+	size_t topN = std::min(keypoints.size(), K);
+	for (int i = 0; i < topN; i++)
+	{
+		int id = idx[i];
+		outputKeypoints.push_back(keypoints[id]);
+	}
+
+	return outputKeypoints; // Return the K most isolated keypoints
 }
