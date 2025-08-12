@@ -1,11 +1,13 @@
 #include <iostream>
 #include <cstdint>
 #include <opencv2/opencv.hpp>
+#include <numeric>
 
 using std::uint64_t;
 
 
 static uint64_t Solution(uint64_t A);
+std::vector<cv::KeyPoint> computeCircleCenterCoordinates(const cv::Mat& image);
 
 int main()
 {
@@ -35,50 +37,96 @@ uint64_t Solution(uint64_t A)
 			continue; // Skip to the next file if loading fails
 		}
 
-		// 3. Blob Detector parameters
-		cv::SimpleBlobDetector::Params params;
-		params.filterByColor = true;
-		params.blobColor = 255; // 0: dark blob, 255: bright blob
+		std::vector<cv::KeyPoint> keypoints = computeCircleCenterCoordinates(image); // Detect keypoints
 
-		params.filterByArea = true;
-		params.minArea = 3*3; // px^2
-		params.maxArea = 30*30; // px^2
-
-		params.filterByCircularity = true;
-		params.minCircularity = 0.8; // 0~1
-
-		params.filterByInertia = true;
-		params.minInertiaRatio = 0.5; // 0~1
-
-		params.filterByConvexity = true;
-		params.minConvexity = 0.8; // 0~1
-
-		// 4. Create a SimpleBlobDetector with the parameters
-		auto detector = cv::SimpleBlobDetector::create(params);
-
-		// 5. Detect keypoints
-        std::vector<cv::KeyPoint> keypoints;
-        detector->detect(image, keypoints);
-
-		// 6. Draw keypoints on the image
-		cv::Mat output;
-		cv::drawKeypoints(image, keypoints, output, cv::Scalar(0, 0, 255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-
-		// 7. Print center coordinates of the keypoints
-		for (size_t i = 0; i < keypoints.size(); i++) 
+		if (keypoints.empty()) 
 		{
-			std::cout << "Center " << i << ": ("
-				<< keypoints[i].pt.x << ", " << keypoints[i].pt.y << ")" << std::endl;
+			std::cerr << "No keypoints detected in image " << fileName << std::endl;
+			continue; // Skip to the next file if no keypoints are found
 		}
 
-		cv::imshow("Detected Circles", output);
+		// First, try searching with a loop. If it's slow, try a tree.
+		std::vector<double> closestNeighborDists;
+		std::vector<double> neighborDists;
+		closestNeighborDists.reserve(keypoints.size());
+		neighborDists.reserve(keypoints.size() - 1);
+		for (const auto& keypoint : keypoints)
+		{
+			neighborDists.clear();
+			for (const auto& neighbor : keypoints)
+			{
+				if (neighbor.pt == keypoint.pt) // You can search by address, but for readability...
+				{
+					continue;
+				}
 
-		// Display image
-		cv::waitKey(0);
-		cv::destroyAllWindows();
+				neighborDists.push_back(cv::norm(neighbor.pt - keypoint.pt));
+			}
 
-		// TODO: Measure the distance to the nearest neighbor for each key point using FLANN. 
+			closestNeighborDists.push_back(*std::min_element(neighborDists.begin(), neighborDists.end()));
+		}
+
+
+		std::vector<int> idx(closestNeighborDists.size());
+		std::iota(idx.begin(), idx.end(), 0);
+
+		// Sort corresponding indexes in descending order of distance value
+		std::sort(idx.begin(), idx.end(), [&closestNeighborDists](int a, int b) {
+			return closestNeighborDists[a] > closestNeighborDists[b];
+			});
+
+		int topN = std::min(5, (int)idx.size());
+		std::cout << "Top " << topN << " keypoints:\n";
+		for (int i = 0; i < topN; i++) 
+		{
+			int id = idx[i];
+			std::cout << "score=" << closestNeighborDists[id]
+				<< "  point=(" << keypoints[id].pt.x << ", " << keypoints[id].pt.y << ")" << std::endl;
+		}
+
+		// Display the image with the furthest keypoints marked
+
+		cv::Mat outputImage = image.clone();
+		for (int i = 0; i < topN; i++) 
+		{
+			int id = idx[i];
+			cv::circle(outputImage, keypoints[id].pt, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
+		}
+		cv::imshow("Furthest Keypoints", outputImage); // Show the image with keypoints
+		cv::waitKey(0); // Wait for a key press to close the window
+		cv::destroyAllWindows(); // Close all OpenCV windows
+
 		// Then, extract the five key points with the furthest distance.
 	}
 	return 0;
+}
+
+std::vector<cv::KeyPoint> computeCircleCenterCoordinates(const cv::Mat& image) 
+{
+	// Blob Detector parameters
+	cv::SimpleBlobDetector::Params params;
+	params.filterByColor = true;
+	params.blobColor = 255; // 0: dark blob, 255: bright blob
+
+	params.filterByArea = true;
+	params.minArea = 3 * 3; // px^2
+	params.maxArea = 30 * 30; // px^2
+
+	params.filterByCircularity = true;
+	params.minCircularity = 0.8; // 0~1
+
+	params.filterByInertia = true;
+	params.minInertiaRatio = 0.5; // 0~1
+
+	params.filterByConvexity = true;
+	params.minConvexity = 0.8; // 0~1
+
+	// Create a SimpleBlobDetector with the parameters
+	auto detector = cv::SimpleBlobDetector::create(params);
+
+	// Detect keypoints
+	std::vector<cv::KeyPoint> keypoints;
+	detector->detect(image, keypoints);
+
+	return keypoints;
 }
