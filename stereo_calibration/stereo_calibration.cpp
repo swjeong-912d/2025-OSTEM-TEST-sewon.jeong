@@ -7,10 +7,12 @@ using std::uint64_t;
 
 
 static uint64_t Solution(uint64_t A);
+void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage,const std::vector<cv::Point3f>& pattern3D, double& rms,	cv::Mat& rightCameraPosition, double& camerAngularDeviation);
 std::vector<cv::Point2f> computeCircleCenterCoordinates(const cv::Mat& image);
 std::vector<cv::Point2f> findKNearestNeighborCoords(const cv::Point2f& queryPoint, const std::vector<cv::Point2f>& points, int K);
 std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector<cv::Point2f>& keyPointCoordinates, size_t K = 5, size_t numNeighbors = 4);
-std::vector<cv::Point3f> generate3DCoordinates();
+std::vector<cv::Point3f> generate3DCoordinates(const std::vector<cv::Point3f>& basePoints, const std::vector<cv::Point3f>& offsets);
+
 
 int main()
 {
@@ -21,6 +23,31 @@ int main()
 
 uint64_t Solution(uint64_t A)
 {
+	double baseUnit = 1.0; // mm
+	// patter3d setting
+	std::vector<cv::Point3f> pattern3D = {};
+	{
+		std::vector<cv::Point3f> basePoints
+		{
+			cv::Point3f(-baseUnit , baseUnit , 0),
+			cv::Point3f(baseUnit , baseUnit , 0),
+			cv::Point3f(0, 0, 0),
+			cv::Point3f(-baseUnit , -baseUnit , 0),
+			cv::Point3f(baseUnit , -baseUnit , 0)
+		};
+
+		std::vector<cv::Point3f> offsets
+		{
+			cv::Point3f(0, 0, 0),
+			cv::Point3f(-4 * baseUnit, 0, 0),
+			cv::Point3f(4 * baseUnit, 0, 0),
+			cv::Point3f(0, 4 * baseUnit, 0),
+			cv::Point3f(0, -4 * baseUnit, 0)
+		};
+
+		pattern3D = generate3DCoordinates(basePoints, offsets);
+	}
+
 	// 1. Image path setting
 	std::vector<cv::Mat> images;
 	std::string base_dir = "../../stereo_calibration/imgs/";
@@ -28,12 +55,6 @@ uint64_t Solution(uint64_t A)
 	std::vector<cv::String> fileNames;
 	cv::glob(base_dir + imageNames, fileNames);
 
-	std::vector<cv::Point3f> pattern3D = generate3DCoordinates();
-
-	std::vector<std::vector<cv::Point2f>> imagePoints; // Store 2D points from images
-	std::vector<std::vector<cv::Point3f>> objectPoints;
-
-	cv::Size imgSize;
 	// 2. Read images and process each image
 	for (const auto& fileName : fileNames) 
 	{
@@ -41,28 +62,66 @@ uint64_t Solution(uint64_t A)
 		if (image.empty()) 
 		{
 			std::cerr << "Error: Could not load image " << fileName << std::endl;
-			continue; // Skip to the next file if loading fails
+			images.push_back(cv::Mat());
 		}
+		images.push_back(image);
+	}
+	
+	if (images.size() < 2) 
+	{
+		std::cerr << "Error: Not enough images for stereo calibration." << std::endl;
+		return 1; // Exit if not enough images
+	}
 
-		imgSize = image.size(); // Get the size of the image
+	// 3. Calibrate stereo camera
+	for (size_t i = 1; i < images.size(); i++) 
+	{
+		cv::Mat leftImage = images[i - 1];
+		cv::Mat rightImage = images[i];
+
+		double rms, camerAngularDeviation;
+		cv::Mat rightCameraPosition;
+		calibrateStereoCamera(leftImage, rightImage, pattern3D, rms, rightCameraPosition, camerAngularDeviation);
+		std::cout << "Stereo calibration RMS error: " << rms << std::endl;
+		std::cout << "Right camera position: " << rightCameraPosition.t() << std::endl; // Transpose for better readability
+		std::cout << "Baseline: " << baseUnit << "mm" << std::endl;
+		std::cout << "camera deviation angle: " << camerAngularDeviation << " degrees" << std::endl;
+	}
+
+	return 0;
+}
+
+void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage, const std::vector<cv::Point3f>& pattern3D, double& rms, cv::Mat& rightCameraPosition, double& camerAngularDeviation)
+{
+	if (leftImage.size() != rightImage.size())
+	{
+		std::cerr << "Error: Images must be of the same size for stereo calibration." << std::endl;
+		return;
+	}
+
+	std::vector<std::vector<cv::Point2f>> imagePoints; // Store 2D points from images
+	std::vector<std::vector<cv::Point3f>> objectPoints;
+	cv::Size imgSize = leftImage.size();
+
+	for (const auto& image : { leftImage, rightImage })
+	{
 		std::vector<cv::Point2f> keyPointCoordinates = computeCircleCenterCoordinates(image); // Detect keypoints
 		size_t isolatedKeypointCount = 5; // Number of isolated keypoints to find
 		size_t numNeighbors = 4; // Number of neighbors of isolated keypoints to consider
-		
+
 		// Find the most isolated keypoints and its 4 neighbors, total points  = isolatedKeypointCount * (1+ numNeighbors)
-		auto selectedKeypointCoordinates = findMostIsolatedPointGroupCoordinates(keyPointCoordinates, isolatedKeypointCount, numNeighbors); 
+		auto selectedKeypointCoordinates = findMostIsolatedPointGroupCoordinates(keyPointCoordinates, isolatedKeypointCount, numNeighbors);
 
 		//sort the keypoints based on their coordinates
-		size_t W = image.size().width;
-		std::sort(selectedKeypointCoordinates.begin(), selectedKeypointCoordinates.end(), [&W](const cv::Point2f& a, const cv::Point2f& b) {
-			return a.x + W * a.y < b.x + W * b.y;
+		std::sort(selectedKeypointCoordinates.begin(), selectedKeypointCoordinates.end(), [&imgSize](const cv::Point2f& a, const cv::Point2f& b) {
+			return a.x + imgSize.width * a.y < b.x + imgSize.width * b.y;
 			});
 		imagePoints.push_back(selectedKeypointCoordinates);
 		objectPoints.push_back(pattern3D);
 
 		// Display the image with the furthest keypoints marked
 		cv::Mat outputImage = image.clone();
-		for (const auto& coordinate: selectedKeypointCoordinates)
+		for (const auto& coordinate : selectedKeypointCoordinates)
 		{
 			//std::cout << "coord: " << coordinate.x << "," << coordinate.y << std::endl;
 			cv::circle(outputImage, coordinate, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
@@ -71,66 +130,44 @@ uint64_t Solution(uint64_t A)
 		cv::waitKey(0); // Wait for a key press to close the window
 		cv::destroyAllWindows(); // Close all OpenCV windows
 	}
-	
-    cv::Mat cameraMatrix, distCoeffs;
-    std::vector<cv::Mat> rvecs, tvecs;
+	cv::Mat cameraMatrix, distCoeffs;
+	std::vector<cv::Mat> rvecs, tvecs;
 
-    double rms = calibrateCamera(
-        objectPoints,
-        imagePoints,
-        imgSize,
-        cameraMatrix,
-        distCoeffs,
-        rvecs,
-        tvecs
-    );
+	rms = calibrateCamera(
+		objectPoints,
+		imagePoints,
+		imgSize,
+		cameraMatrix,
+		distCoeffs,
+		rvecs,
+		tvecs
+	);
 
-	cv::Mat R0;
-	cv::Rodrigues(rvecs[0], R0);
-	cv::Mat t0 = tvecs[0];
+	cv::Mat Rl, Rr;
+	cv::Rodrigues(rvecs[0], Rl); // (rotation axis * rotation angle) vector to rotation matrix
+	cv::Rodrigues(rvecs[1], Rr); // (rotation axis * rotation angle) vector to rotation matrix
+
+	cv::Mat tl = tvecs[0];
+	cv::Mat tr = tvecs[1];
 
 	// inverse map
-	cv::Mat R0_inv = R0.t();
-	cv::Mat t0_inv = -R0_inv * t0;
+	cv::Mat Rl_inv = Rl.t(); // Rl is rotation matrix which is orthogonal, thus Rl_inv = Rl^T
 
-	for (size_t i = 0; i < 2; i++)
-	{
-		cv::Mat R;
-		cv::Rodrigues(rvecs[i], R);
-		cv::Mat t = tvecs[i];
+	// xl = Rl * x + tl
+	// xr = Rr * x + tr
+	// xr = Rr * (Rl_inv * (xl - tl)) + tr
+	// xr = Rr * Rl_inv * xl - Rr * Rl_inv * tl + tr
 
-		cv::Mat R_new = R0_inv * R;
-		cv::Mat t_new = R0_inv * t + t0_inv;
-
-		cv::Rodrigues(R_new, rvecs[i]);
-		tvecs[i] = t_new;
-
-		std::cout << "Camera " << i+1 << " position in world coordinates:" << t_new << std::endl;
-	}
-	return 0;
+	rightCameraPosition = -Rr * Rl_inv * tl + tr;
+	cv::Mat rotVec;
+	cv::Rodrigues(Rr * Rl_inv, rotVec);
+	camerAngularDeviation = cv::norm(rotVec) * 180.0 / CV_PI; // degree
 }
 
-std::vector<cv::Point3f> generate3DCoordinates()
+std::vector<cv::Point3f> generate3DCoordinates(const std::vector<cv::Point3f>& basePoints, const std::vector<cv::Point3f>& offsets)
 {
 	// This function is a placeholder for computing 3D coordinates.
 	// In a real application, you would implement the logic to compute 3D coordinates based on stereo calibration.
-	std::vector<cv::Point3f> basePoints
-	{
-		cv::Point3f(-1, 1, 0),
-		cv::Point3f(1, 1, 0),
-		cv::Point3f(0, 0, 0),
-		cv::Point3f(-1, -1, 0),
-		cv::Point3f(1, -1, 0)
-	};
-
-	std::vector<cv::Point3f> offsets
-	{
-		cv::Point3f(0, 0, 0),
-		cv::Point3f(-4, 0, 0),
-		cv::Point3f(4, 0, 0),
-		cv::Point3f(0, 4, 0),
-		cv::Point3f(0, -4, 0)
-	};
 
 	std::vector<cv::Point3f> combinedPoints;
 
@@ -273,6 +310,18 @@ std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector
 		std::vector<cv::Point2f> groupNeighborCoords = findKNearestNeighborCoords(keyPointCoordinates[id], keyPointCoordinates, numNeighbors + 1);
 		outputKeyPointCoords.insert(outputKeyPointCoords.end(),  groupNeighborCoords.begin(), groupNeighborCoords.end());
 	}
+
+	std::cout << "Detected circles: " << outputKeyPointCoords.size() << std::endl;
+
+	std::ostringstream oss;
+	oss << "Circle center coordinates: ";
+	for (const auto& keyPointCoord : outputKeyPointCoords)
+	{
+		oss << "(" << keyPointCoord.x << "," << keyPointCoord.y << "), ";
+	}
+	auto coordString = oss.str();
+	coordString.resize(coordString.size() - 2); // remove last comma
+	std::cout << coordString << std::endl;
 
 	return outputKeyPointCoords; // Return the K most isolated keypoints
 }
