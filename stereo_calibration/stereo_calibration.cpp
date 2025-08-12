@@ -71,7 +71,42 @@ uint64_t Solution(uint64_t A)
 		cv::waitKey(0); // Wait for a key press to close the window
 		cv::destroyAllWindows(); // Close all OpenCV windows
 	}
+	
+    cv::Mat cameraMatrix, distCoeffs;
+    std::vector<cv::Mat> rvecs, tvecs;
 
+    double rms = calibrateCamera(
+        objectPoints,
+        imagePoints,
+        imgSize,
+        cameraMatrix,
+        distCoeffs,
+        rvecs,
+        tvecs
+    );
+
+	cv::Mat R0;
+	cv::Rodrigues(rvecs[0], R0);
+	cv::Mat t0 = tvecs[0];
+
+	// inverse map
+	cv::Mat R0_inv = R0.t();
+	cv::Mat t0_inv = -R0_inv * t0;
+
+	for (size_t i = 0; i < 2; i++)
+	{
+		cv::Mat R;
+		cv::Rodrigues(rvecs[i], R);
+		cv::Mat t = tvecs[i];
+
+		cv::Mat R_new = R0_inv * R;
+		cv::Mat t_new = R0_inv * t + t0_inv;
+
+		cv::Rodrigues(R_new, rvecs[i]);
+		tvecs[i] = t_new;
+
+		std::cout << "Camera " << i+1 << " position in world coordinates:" << t_new << std::endl;
+	}
 	return 0;
 }
 
