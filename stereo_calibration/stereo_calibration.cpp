@@ -10,6 +10,7 @@ static uint64_t Solution(uint64_t A);
 std::vector<cv::Point2f> computeCircleCenterCoordinates(const cv::Mat& image);
 std::vector<cv::Point2f> findKNearestNeighborCoords(const cv::Point2f& queryPoint, const std::vector<cv::Point2f>& points, int K);
 std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector<cv::Point2f>& keyPointCoordinates, size_t K = 5, size_t numNeighbors = 4);
+std::vector<cv::Point3f> generate3DCoordinates();
 
 int main()
 {
@@ -27,12 +28,7 @@ uint64_t Solution(uint64_t A)
 	std::vector<cv::String> fileNames;
 	cv::glob(base_dir + imageNames, fileNames);
 
-	std::vector<cv::Point3f> pattern3D = {
-		cv::Point3f(0,1,0),
-		cv::Point3f(-1,0,0),
-		cv::Point3f(0,0,0),
-		cv::Point3f(1,0,0),
-		cv::Point3f(0,-1,0) }; // 3D points in the calibration pattern
+	std::vector<cv::Point3f> pattern3D = generate3DCoordinates();
 
 	std::vector<std::vector<cv::Point2f>> imagePoints; // Store 2D points from images
 	std::vector<std::vector<cv::Point3f>> objectPoints;
@@ -68,6 +64,7 @@ uint64_t Solution(uint64_t A)
 		cv::Mat outputImage = image.clone();
 		for (const auto& coordinate: selectedKeypointCoordinates)
 		{
+			//std::cout << "coord: " << coordinate.x << "," << coordinate.y << std::endl;
 			cv::circle(outputImage, coordinate, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
 		}
 		cv::imshow("Furthest Keypoints", outputImage); // Show the image with keypoints
@@ -76,6 +73,57 @@ uint64_t Solution(uint64_t A)
 	}
 
 	return 0;
+}
+
+std::vector<cv::Point3f> generate3DCoordinates()
+{
+	// This function is a placeholder for computing 3D coordinates.
+	// In a real application, you would implement the logic to compute 3D coordinates based on stereo calibration.
+	std::vector<cv::Point3f> basePoints
+	{
+		cv::Point3f(-1, 1, 0),
+		cv::Point3f(1, 1, 0),
+		cv::Point3f(0, 0, 0),
+		cv::Point3f(-1, -1, 0),
+		cv::Point3f(1, -1, 0)
+	};
+
+	std::vector<cv::Point3f> offsets
+	{
+		cv::Point3f(0, 0, 0),
+		cv::Point3f(-4, 0, 0),
+		cv::Point3f(4, 0, 0),
+		cv::Point3f(0, 4, 0),
+		cv::Point3f(0, -4, 0)
+	};
+
+	std::vector<cv::Point3f> combinedPoints;
+
+	for (const auto& b : basePoints)
+	{
+		for (const auto& o : offsets)
+		{
+			combinedPoints.push_back(cv::Point3f(b.x + o.x, b.y + o.y, 0));
+		}
+	}
+
+	std::sort(combinedPoints.begin(), combinedPoints.end(), [](const cv::Point3f& p1, const cv::Point3f& p2) {
+			if (p1.y!= p2.y)
+			{
+				return p1.y > p2.y;  // y descending order
+			}
+			else
+			{
+				return p1.x < p2.x;  // x ascending order
+			}
+		});
+
+	//std::cout << "Sorted points (x asc, y desc): ";
+	//for (const auto& p : combinedPoints)
+	//{
+	//	std::cout << "(" << p.x << ", " << p.y << ", " << p.z << ")\n";
+	//}
+	return combinedPoints;
 }
 
 std::vector<cv::Point2f> computeCircleCenterCoordinates(const cv::Mat& image)
@@ -154,12 +202,13 @@ std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector
 	std::vector<double> neighborDists;
 	closestNeighborDists.reserve(keyPointCoordinates.size());
 	neighborDists.reserve(keyPointCoordinates.size() - 1);
+
 	for (const auto& keypointCoord: keyPointCoordinates)
 	{
 		neighborDists.clear();
 		for (const auto& neighborCoord : keyPointCoordinates)
 		{
-			if (neighborCoord == keypointCoord) // You can search by address, but for readability...
+			if (neighborCoord == keypointCoord) 
 			{
 				continue;
 			}
@@ -169,7 +218,6 @@ std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector
 
 		closestNeighborDists.push_back(*std::min_element(neighborDists.begin(), neighborDists.end()));
 	}
-
 
 	std::vector<int> idx(closestNeighborDists.size());
 	std::iota(idx.begin(), idx.end(), 0);
