@@ -61,7 +61,8 @@ uint64_t Solution(uint64_t A)
 cv::Mat computeTeethMask(const cv::Mat& image)
 {
 	cv::Mat shifted;
-	cv::pyrMeanShiftFiltering(image, shifted, 20, 40);
+	cv::pyrMeanShiftFiltering(image, shifted, 10, 20);
+	imshow("Mean Shift Filtered Image", shifted);
 
 	cv::Mat hsv;
 	cv::cvtColor(shifted, hsv, cv::COLOR_BGR2HSV);
@@ -74,7 +75,7 @@ cv::Mat computeTeethMask(const cv::Mat& image)
 
 	// generate red mask
 	cv::Mat lowerRedMask, upperRedMask, redMask;
-	cv::inRange(hsv, cv::Scalar(0, 70, 70), cv::Scalar(9, 255, 255), lowerRedMask);
+	cv::inRange(hsv, cv::Scalar(0, 70, 70), cv::Scalar(8, 255, 255), lowerRedMask);
 	cv::inRange(hsv, cv::Scalar(170, 70, 70), cv::Scalar(180, 255, 255), upperRedMask);
 	cv::bitwise_or(lowerRedMask, upperRedMask, redMask);
 
