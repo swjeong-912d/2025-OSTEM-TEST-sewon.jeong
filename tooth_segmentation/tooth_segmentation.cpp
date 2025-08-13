@@ -72,10 +72,10 @@ cv::Mat computeTeethMask(const cv::Mat& image)
 	cv::Mat brightMask;
 	cv::threshold(channels[2], brightMask, 110, 255, cv::THRESH_BINARY);
 
-	// generate red mask (Hue: 0~10 deg, 160~180 deg)
+	// generate red mask
 	cv::Mat lowerRedMask, upperRedMask, redMask;
-	cv::inRange(hsv, cv::Scalar(0, 50, 50), cv::Scalar(10, 255, 255), lowerRedMask);
-	cv::inRange(hsv, cv::Scalar(160, 50, 50), cv::Scalar(180, 255, 255), upperRedMask);
+	cv::inRange(hsv, cv::Scalar(0, 70, 70), cv::Scalar(9, 255, 255), lowerRedMask);
+	cv::inRange(hsv, cv::Scalar(170, 70, 70), cv::Scalar(180, 255, 255), upperRedMask);
 	cv::bitwise_or(lowerRedMask, upperRedMask, redMask);
 
 	// remove red areas from brightMask
