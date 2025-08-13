@@ -60,9 +60,12 @@ uint64_t Solution(uint64_t A)
 
 cv::Mat computeTeethMask(const cv::Mat& image)
 {
+
+	// clustering to reduce noise
 	cv::Mat shifted;
 	cv::pyrMeanShiftFiltering(image, shifted, 10, 20);
 
+	// covert to HSV color space
 	cv::Mat hsv;
 	cv::cvtColor(shifted, hsv, cv::COLOR_BGR2HSV);
 	std::vector<cv::Mat> channels;
