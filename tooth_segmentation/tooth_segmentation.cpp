@@ -62,7 +62,6 @@ cv::Mat computeTeethMask(const cv::Mat& image)
 {
 	cv::Mat shifted;
 	cv::pyrMeanShiftFiltering(image, shifted, 10, 20);
-	imshow("Mean Shift Filtered Image", shifted);
 
 	cv::Mat hsv;
 	cv::cvtColor(shifted, hsv, cv::COLOR_BGR2HSV);
