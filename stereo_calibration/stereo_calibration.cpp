@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <opencv2/opencv.hpp>
 #include <numeric>
+#include <algorithm>
 
 using std::uint64_t;
 
@@ -12,6 +13,7 @@ std::vector<cv::Point2f> computeCircleCenterCoordinates(const cv::Mat& image);
 std::vector<cv::Point2f> findKNearestNeighborCoords(const cv::Point2f& queryPoint, const std::vector<cv::Point2f>& points, int K);
 std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector<cv::Point2f>& keyPointCoordinates, size_t K = 5, size_t numNeighbors = 4);
 std::vector<cv::Point3f> generate3DCoordinates(const std::vector<cv::Point3f>& basePoints, const std::vector<cv::Point3f>& offsets);
+cv::Mat cropByKeypoints(const cv::Mat& img, const std::vector<cv::Point2f>& keypoints, size_t padding);
 
 
 int main()
@@ -102,6 +104,7 @@ void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage, 
 	std::vector<std::vector<cv::Point2f>> imagePoints; // Store 2D points from images
 	std::vector<std::vector<cv::Point3f>> objectPoints;
 	cv::Size imgSize = leftImage.size();
+	std::vector<cv::Mat> croppedImages = {};
 
 	for (const auto& image : { leftImage, rightImage })
 	{
@@ -126,9 +129,8 @@ void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage, 
 			//std::cout << "coord: " << coordinate.x << "," << coordinate.y << std::endl;
 			cv::circle(outputImage, coordinate, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
 		}
-		cv::imshow("Furthest Keypoints", outputImage); // Show the image with keypoints
-		cv::waitKey(0); // Wait for a key press to close the window
-		cv::destroyAllWindows(); // Close all OpenCV windows
+
+		croppedImages.push_back(cropByKeypoints(image, selectedKeypointCoordinates, 5));
 	}
 	cv::Mat cameraMatrix, distCoeffs;
 	std::vector<cv::Mat> rvecs, tvecs;
@@ -142,6 +144,39 @@ void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage, 
 		rvecs,
 		tvecs
 	);
+
+	for (const auto& image : croppedImages)
+	{
+		cv::imshow("Cropped Image", image); // Show the undistorted image
+		cv::waitKey(0); // Wait for a key press to close the window
+	}
+
+	auto cropLeftImage = croppedImages[0];
+	auto cropRightImage = croppedImages[1];
+	cv::cvtColor(cropLeftImage, cropLeftImage, cv::COLOR_BGR2GRAY);
+	cv::cvtColor(cropRightImage, cropRightImage, cv::COLOR_BGR2GRAY);
+
+	cv::resize(cropLeftImage, cropLeftImage, cv::Size(400,400));
+	cv::resize(cropRightImage, cropRightImage, cv::Size(400,400));
+
+	cv::threshold(cropLeftImage, cropLeftImage, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+	cv::threshold(cropRightImage, cropRightImage, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+	imshow("Left Image", cropLeftImage); // Show the left image
+	imshow("Right Image", cropRightImage); // Show the right image
+	cv::waitKey(0); // Wait for a key press to close the window
+
+	cv::Mat xor_img, rot_image = cropLeftImage;
+	std::vector<size_t> nonzero_count;
+	for (size_t i = 0; i < 4; i++)
+	{
+		cv::bitwise_xor(rot_image, cropRightImage, xor_img);
+		nonzero_count.push_back(cv::countNonZero(xor_img));// XOR operation to visualize differences
+		cv::rotate(rot_image, rot_image, cv::ROTATE_90_CLOCKWISE);
+		std::cout << nonzero_count.back() << std::endl;
+	}
+	cv::bitwise_xor(cropLeftImage, cropRightImage, cropLeftImage); // XOR operation to visualize differences
+
+	cv::destroyAllWindows(); // Close all OpenCV windows
 
 	cv::Mat Rl, Rr;
 	cv::Rodrigues(rvecs[0], Rl); // (rotation axis * rotation angle) vector to rotation matrix
@@ -324,4 +359,30 @@ std::vector<cv::Point2f> findMostIsolatedPointGroupCoordinates(const std::vector
 	std::cout << coordString << std::endl;
 
 	return outputKeyPointCoords; // Return the K most isolated keypoints
+}
+
+cv::Mat cropByKeypoints(const cv::Mat& img, const std::vector<cv::Point2f>& keypoints, size_t padding)
+{
+	int x_min = keypoints[0].x;
+	int x_max = keypoints[0].x;
+	int y_min = keypoints[0].y;
+	int y_max = keypoints[0].y;
+	auto imgSize = img.size();
+
+	for (const auto& pt : keypoints) 
+	{
+		x_min = std::min(x_min, int(pt.x - padding));
+		y_min = std::min(y_min, int(pt.y - padding));
+
+		x_max = std::max(x_max, int(pt.x + padding));
+		y_max = std::max(y_max, int(pt.y + padding));
+	}
+
+	x_min = std::max(0, x_min);
+	y_min = std::max(0, y_min);
+	x_max = std::min(imgSize.width, x_max);
+	y_max = std::min(imgSize.height, y_max);
+	cv::Rect roi(x_min, y_min, x_max - x_min, y_max - y_min);
+
+	return img(roi).clone();
 }
