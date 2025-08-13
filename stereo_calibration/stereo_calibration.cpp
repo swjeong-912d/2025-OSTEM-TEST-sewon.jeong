@@ -60,7 +60,7 @@ uint64_t Solution(uint64_t A)
 	// 2. Read images and process each image
 	for (const auto& fileName : fileNames) 
 	{
-		cv::Mat image = cv::imread(fileName, cv::IMREAD_COLOR); // Read the image
+		cv::Mat image = cv::imread(fileName, cv::IMREAD_GRAYSCALE); // Read the image
 		if (image.empty()) 
 		{
 			std::cerr << "Error: Could not load image " << fileName << std::endl;
@@ -129,8 +129,18 @@ void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage, 
 			//std::cout << "coord: " << coordinate.x << "," << coordinate.y << std::endl;
 			cv::circle(outputImage, coordinate, 5, cv::Scalar(0, 255, 0), -1); // Draw a circle around each keypoint
 		}
-
-		croppedImages.push_back(cropByKeypoints(image, selectedKeypointCoordinates, 5));
+		cv::Mat mask = cv::Mat::zeros(image.size(), CV_8UC1);
+		auto isolatedPoints = findMostIsolatedPointGroupCoordinates(keyPointCoordinates, isolatedKeypointCount, 0);
+		for (const auto& coordinate : isolatedPoints)
+		{
+			cv::circle(mask, coordinate, 20, cv::Scalar(255), -1); // Draw a filled circle on the mask
+		}
+		cv::imshow("mask",mask);
+		cv::waitKey(0);
+		cv::Mat maskedImage;
+		cv::threshold(image, image, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+		bitwise_and(image, image, maskedImage, mask);
+		croppedImages.push_back(cropByKeypoints(maskedImage, selectedKeypointCoordinates, 5));
 	}
 	cv::Mat cameraMatrix, distCoeffs;
 	std::vector<cv::Mat> rvecs, tvecs;
@@ -153,25 +163,23 @@ void calibrateStereoCamera(const cv::Mat& leftImage, const cv::Mat& rightImage, 
 
 	auto cropLeftImage = croppedImages[0];
 	auto cropRightImage = croppedImages[1];
-	cv::cvtColor(cropLeftImage, cropLeftImage, cv::COLOR_BGR2GRAY);
-	cv::cvtColor(cropRightImage, cropRightImage, cv::COLOR_BGR2GRAY);
 
-	cv::resize(cropLeftImage, cropLeftImage, cv::Size(400,400));
-	cv::resize(cropRightImage, cropRightImage, cv::Size(400,400));
+	cv::resize(cropLeftImage, cropLeftImage, cv::Size(200,200));
+	cv::resize(cropRightImage, cropRightImage, cv::Size(200,200));
 
-	cv::threshold(cropLeftImage, cropLeftImage, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
-	cv::threshold(cropRightImage, cropRightImage, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
 	imshow("Left Image", cropLeftImage); // Show the left image
 	imshow("Right Image", cropRightImage); // Show the right image
 	cv::waitKey(0); // Wait for a key press to close the window
 
-	cv::Mat xor_img, rot_image = cropLeftImage;
+	cv::Mat xor_img, rot_image = cropLeftImage.clone();
 	std::vector<size_t> nonzero_count;
 	for (size_t i = 0; i < 4; i++)
 	{
 		cv::bitwise_xor(rot_image, cropRightImage, xor_img);
 		nonzero_count.push_back(cv::countNonZero(xor_img));// XOR operation to visualize differences
 		cv::rotate(rot_image, rot_image, cv::ROTATE_90_CLOCKWISE);
+		imshow("xor_img", xor_img); 
+		cv::waitKey(0); // Wait for a key press to close the window
 		std::cout << nonzero_count.back() << std::endl;
 	}
 	cv::bitwise_xor(cropLeftImage, cropRightImage, cropLeftImage); // XOR operation to visualize differences
